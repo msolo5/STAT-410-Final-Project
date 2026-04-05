@@ -1,0 +1,62 @@
+library(dplyr)
+
+# ---- Load ratings ----
+years <- c(2015, 2016, 2017, 2018, 2019, 2021, 2022, 2023, 2024, 2025)
+folder <- "~/Desktop/Bart Torvik Yearly Data/"
+
+ratings <- lapply(years, function(yr) {
+  path <- paste0(folder, yr, "_team_results.csv")
+  df <- read.csv(path, header = TRUE, check.names = FALSE)
+  names(df) <- make.unique(names(df), sep = "_")
+  adjt_col <- grep("adjt", names(df), ignore.case = TRUE, value = TRUE)
+  adjt_col <- adjt_col[length(adjt_col)]
+  if (yr <= 2022) {
+    data.frame(
+      team    = as.character(df[[1]]),
+      conf    = as.character(df[[2]]),
+      year    = as.integer(yr),
+      adj_o   = as.numeric(df[[4]]),
+      adj_d   = as.numeric(df[[6]]),
+      adj_t   = as.numeric(df[[adjt_col]]),
+      barthag = as.numeric(df[[8]]),
+      wab     = as.numeric(df[[41]])
+    )
+  } else {
+    data.frame(
+      team    = as.character(df$team),
+      conf    = as.character(df$conf),
+      year    = as.integer(yr),
+      adj_o   = as.numeric(df$adjoe),
+      adj_d   = as.numeric(df$adjde),
+      adj_t   = as.numeric(df[[adjt_col]]),
+      barthag = as.numeric(df$barthag),
+      wab     = as.numeric(df$WAB)
+    )
+  }
+}) |> bind_rows()
+
+# ---- Load tournament data ----
+tourney <- read.csv("~/Desktop/All Tournament Data.csv") |>
+  mutate(seed = as.integer(seed))
+
+# ---- Fix name mismatches ----
+tourney <- tourney |>
+  mutate(team = case_when(
+    team == "North Carolina St." ~ "N.C. State",
+    team == "LIU Brooklyn"       ~ "LIU",
+    team == "Louisiana Lafayette" ~ "Louisiana",
+    team == "College of Charleston" ~ "Charleston",
+    TRUE ~ team
+  ))
+
+# ---- Join ----
+combined <- tourney |>
+  inner_join(ratings, by = c("team", "year"))
+
+cat("Tournament teams:", nrow(tourney), "\n")
+cat("Matched with ratings:", nrow(combined), "\n")
+cat("Unmatched:", nrow(tourney) - nrow(combined), "\n")
+
+unmatched <- tourney |>
+  anti_join(ratings, by = c("team", "year"))
+print(unmatched)
