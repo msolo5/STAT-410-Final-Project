@@ -1,22 +1,50 @@
+library(dplyr)
+library(readr)
+library(ggplot2)
+
 cbb_data <- read_csv("~/Downloads/cbb.csv")
 
 postseason_map <- c(
-  "Champions" = 8,
-  "2ND"       = 7,
-  "F4"        = 6,
-  "E8"        = 5,
-  "S16"       = 4,
-  "R32"       = 3,
-  "R64"       = 2,
-  "R68"       = 1
+  "Champions" = 6,
+  "2ND"       = 5,
+  "F4"        = 4,
+  "E8"        = 3,
+  "S16"       = 2,
+  "R32"       = 1,
+  "R64"       = 0
 )
 
 cbb_data <- cbb_data |>
-  filter(!is.na(POSTSEASON), POSTSEASON != "N/A") |>
-  mutate(tournament_result = postseason_map[POSTSEASON]) |> 
+  filter(!is.na(POSTSEASON), POSTSEASON != "N/A", POSTSEASON != "R68") |>
+  mutate(tournament_wins = postseason_map[POSTSEASON]) |> 
   mutate(SEED = as.numeric(SEED))
 
 matrix_data <- cbb_data |> 
   select(-TEAM, -CONF, -POSTSEASON)
 
 matrix <- cor(matrix_data)
+
+tournament_cors <- matrix["tournament_wins", ] |>
+  as.data.frame() |>
+  tibble::rownames_to_column("variable") |>
+  rename(correlation = 2) |>
+  filter(variable != "tournament_wins") |>
+  arrange(correlation)
+
+ggplot(tournament_cors, aes(x = reorder(variable, correlation), 
+                            y = correlation, 
+                            fill = correlation)) +
+  geom_col() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  coord_flip() +
+  labs(title = "Correlation with Tournament Result",
+       x = NULL, y = "Correlation") +
+  theme_minimal()
+
+seed_expectations <- cbb_data |>
+  group_by(SEED) |>
+  summarise(expected_wins = round(mean(tournament_wins, na.rm = TRUE), 3))
+
+cbb_data <- cbb_data |>
+  left_join(seed_expectations, by = "SEED") |> 
+  mutate(wins_oe = tournament_wins - expected_wins)
