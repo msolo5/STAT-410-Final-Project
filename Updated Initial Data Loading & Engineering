@@ -24,6 +24,8 @@ matrix_data <- cbb_data |>
 
 matrix <- cor(matrix_data)
 
+library(ggplot2)
+
 tournament_cors <- matrix["tournament_wins", ] |>
   as.data.frame() |>
   tibble::rownames_to_column("variable") |>
@@ -48,3 +50,7 @@ seed_expectations <- cbb_data |>
 cbb_data <- cbb_data |>
   left_join(seed_expectations, by = "SEED") |> 
   mutate(wins_oe = tournament_wins - expected_wins)
+
+cinderella_teams <- cbb_data |> 
+  filter(tournament_wins >= expected_wins + 1.5) |> 
+  filter(SEED >= 5)
