@@ -1,0 +1,22 @@
+cbb_data <- read_csv("~/Downloads/cbb.csv")
+
+postseason_map <- c(
+  "Champions" = 8,
+  "2ND"       = 7,
+  "F4"        = 6,
+  "E8"        = 5,
+  "S16"       = 4,
+  "R32"       = 3,
+  "R64"       = 2,
+  "R68"       = 1
+)
+
+cbb_data <- cbb_data |>
+  filter(!is.na(POSTSEASON), POSTSEASON != "N/A") |>
+  mutate(tournament_result = postseason_map[POSTSEASON]) |> 
+  mutate(SEED = as.numeric(SEED))
+
+matrix_data <- cbb_data |> 
+  select(-TEAM, -CONF, -POSTSEASON)
+
+matrix <- cor(matrix_data)
