@@ -24,8 +24,6 @@ matrix_data <- cbb_data |>
 
 matrix <- cor(matrix_data)
 
-library(ggplot2)
-
 tournament_cors <- matrix["tournament_wins", ] |>
   as.data.frame() |>
   tibble::rownames_to_column("variable") |>
@@ -33,15 +31,17 @@ tournament_cors <- matrix["tournament_wins", ] |>
   filter(variable != "tournament_wins") |>
   arrange(correlation)
 
-ggplot(tournament_cors, aes(x = reorder(variable, correlation), 
+all_team_cors <- ggplot(tournament_cors, aes(x = reorder(variable, correlation), 
                             y = correlation, 
                             fill = correlation)) +
   geom_col() +
   scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
   coord_flip() +
-  labs(title = "Correlation with Tournament Result",
+  labs(title = "Correlation with Tournament Result (All Teams)",
        x = NULL, y = "Correlation") +
   theme_minimal()
+
+ggsave("all_team_cors.png", all_team_cors)
 
 seed_expectations <- cbb_data |>
   group_by(SEED) |>
@@ -54,3 +54,27 @@ cbb_data <- cbb_data |>
 cinderella_teams <- cbb_data |> 
   filter(tournament_wins >= expected_wins + 1.5) |> 
   filter(SEED >= 5)
+
+cinderella_matrix_data <- cinderella_teams |> 
+  select(-TEAM, -CONF, -POSTSEASON, -wins_oe, -expected_wins)
+
+cinderella_matrix <- cor(cinderella_matrix_data)
+
+tournament_cors <- cinderella_matrix["tournament_wins", ] |>
+  as.data.frame() |>
+  tibble::rownames_to_column("variable") |>
+  rename(correlation = 2) |>
+  filter(variable != "tournament_wins") |>
+  arrange(correlation)
+
+cinderella_cors <- ggplot(tournament_cors, aes(x = reorder(variable, correlation), 
+                            y = correlation, 
+                            fill = correlation)) +
+  geom_col() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  coord_flip() +
+  labs(title = "Correlation with Tournament Result (Cinderella Teams Only)",
+       x = NULL, y = "Correlation") +
+  theme_minimal()
+
+ggsave("cinderella_cors.png", cinderella_cors)
