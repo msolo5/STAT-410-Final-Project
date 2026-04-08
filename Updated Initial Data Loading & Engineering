@@ -2,6 +2,8 @@ library(dplyr)
 library(readr)
 library(ggplot2)
 
+options(scipen = 999)
+
 cbb_data <- read_csv("~/Downloads/cbb.csv")
 
 postseason_map <- c(
@@ -78,3 +80,83 @@ cinderella_cors <- ggplot(tournament_cors, aes(x = reorder(variable, correlation
   theme_minimal()
 
 ggsave("cinderella_cors.png", cinderella_cors)
+
+# ── Helper: build a tidy correlation row for one dataset ──────────────────────
+get_cors <- function(df, group_label) {
+  df |>
+    select(-TEAM, -CONF, -POSTSEASON, -any_of(c("wins_oe", "expected_wins"))) |>
+    cor() |>
+    (\(m) m["tournament_wins", ])() |>
+    as.data.frame() |>
+    tibble::rownames_to_column("variable") |>
+    rename(correlation = 2) |>
+    filter(variable != "tournament_wins") |>
+    mutate(group = group_label)
+}
+
+# ── All-teams correlations ─────────────────────────────────────────────────────
+all_cors_df <- get_cors(cbb_data, "All Teams")
+
+# ── Cinderella correlations across three thresholds ───────────────────────────
+thresholds <- c(0.8, 1, 1.1, 1.5, 2)
+
+cinderella_cors_df <- purrr::map_dfr(thresholds, function(t) {
+  cbb_data |>
+    filter(tournament_wins >= expected_wins + t, SEED >= 5) |>
+    get_cors(group_label = paste0("Cinderella (≥+", t, " wins)"))
+})
+
+# ── Combined long-format dataframe ────────────────────────────────────────────
+all_correlations <- bind_rows(all_cors_df, cinderella_cors_df) |>
+  mutate(correlation = round(correlation, 3))
+
+# Separate all-teams from cinderella for the overlay
+all_teams_ref <- all_correlations |> filter(group == "All Teams")
+cinderella_only <- all_correlations |> filter(group != "All Teams")
+
+# Order variables by All Teams correlation for consistent axis
+var_order <- all_teams_ref |> arrange(correlation) |> pull(variable)
+
+comparison_plot <- ggplot() +
+  # Cinderella bars
+  geom_col(
+    data = cinderella_only |> mutate(variable = factor(variable, levels = var_order)),
+    aes(x = variable, y = correlation, fill = correlation),
+    width = 0.7
+  ) +
+  # All Teams reference dots
+  geom_point(
+    data = all_teams_ref |> mutate(variable = factor(variable, levels = var_order)),
+    aes(x = variable, y = correlation),
+    color = "black", size = 2, shape = 21, fill = "white", stroke = 1
+  ) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  facet_wrap(~ group, ncol = 3) +
+  coord_flip() +
+  labs(
+    title = "Correlation with Tournament Wins: Cinderella Definitions vs. All Teams",
+    subtitle = "White dots = All Teams correlation (reference)",
+    x = NULL,
+    y = "Correlation",
+    fill = "Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("comparison_cors.png", comparison_plot, width = 16, height = 8)
+
+get_cor_vec <- function(data, group_label) {
+  data |>
+    filter(group == group_label) |>
+    arrange(variable) |>
+    pull(correlation, name = variable)
+}
+
+all_teams_vec <- get_cor_vec(all_correlations, "All Teams")
+
+diff_df <- purrr::map_dfr(thresholds, function(t) {
+  label   <- paste0("Cinderella (≥+", t, " wins)")
+  cin_vec <- get_cor_vec(all_correlations, label)
+  diff    <- cin_vec - all_teams_vec
+  as.data.frame(t(diff)) |> mutate(threshold = t, .before = 1)
+})
