@@ -1,0 +1,286 @@
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(purrr)
+library(broom)
+
+options(scipen = 999)
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+cbb_data <- read_csv("~/Downloads/cbb.csv")
+
+postseason_map <- c(
+  "Champions" = 6,
+  "2ND"       = 5,
+  "F4"        = 4,
+  "E8"        = 3,
+  "S16"       = 2,
+  "R32"       = 1,
+  "R64"       = 0
+)
+
+cbb_data <- cbb_data |>
+  filter(!is.na(POSTSEASON), POSTSEASON != "N/A", POSTSEASON != "R68") |>
+  mutate(
+    tournament_wins = postseason_map[POSTSEASON],
+    SEED = as.numeric(SEED)
+  ) |>
+  select(-BARTHAG, -WAB, -G)
+
+# ── Seed expectations & wins over expected ────────────────────────────────────
+seed_expectations <- cbb_data |>
+  group_by(SEED) |>
+  summarise(expected_wins = round(mean(tournament_wins, na.rm = TRUE), 3))
+
+cbb_data <- cbb_data |>
+  left_join(seed_expectations, by = "SEED") |>
+  mutate(wins_oe = tournament_wins - expected_wins)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+get_cors <- function(df, group_label) {
+  df |>
+    select(-TEAM, -CONF, -POSTSEASON, -YEAR, -SEED, -W,
+           -any_of(c("wins_oe", "expected_wins"))) |>
+    cor() |>
+    (\(m) m["tournament_wins", ])() |>
+    as.data.frame() |>
+    tibble::rownames_to_column("variable") |>
+    rename(correlation = 2) |>
+    filter(variable != "tournament_wins") |>
+    mutate(
+      correlation = round(correlation, 3),
+      group       = group_label
+    )
+}
+
+get_cor_vec <- function(data, group_label) {
+  data |>
+    filter(group == group_label) |>
+    arrange(variable) |>
+    pull(correlation, name = variable)
+}
+
+# ── Correlations ──────────────────────────────────────────────────────────────
+thresholds <- c(0.8, 1, 1.1, 1.5, 2)
+
+all_cors_df <- get_cors(cbb_data, "All Teams")
+
+cinderella_cors_df <- map_dfr(thresholds, function(t) {
+  cbb_data |>
+    filter(tournament_wins >= expected_wins + t, SEED >= 5) |>
+    get_cors(group_label = paste0("Cinderella (≥+", t, " wins)"))
+})
+
+all_correlations <- bind_rows(all_cors_df, cinderella_cors_df)
+
+# ── Differences from All Teams ────────────────────────────────────────────────
+all_teams_vec <- get_cor_vec(all_correlations, "All Teams")
+
+diff_df <- map_dfr(thresholds, function(t) {
+  label   <- paste0("Cinderella (≥+", t, " wins)")
+  cin_vec <- get_cor_vec(all_correlations, label)
+  as.data.frame(t(cin_vec - all_teams_vec)) |>
+    mutate(threshold = t, .before = 1)
+})
+
+best_threshold <- diff_df |>
+  rowwise() |>
+  mutate(mean_abs_diff = mean(abs(c_across(-threshold)))) |>
+  ungroup() |>
+  arrange(desc(mean_abs_diff)) |>
+  select(threshold, mean_abs_diff)
+
+# ── Plots ─────────────────────────────────────────────────────────────────────
+var_order <- all_cors_df |> arrange(correlation) |> pull(variable)
+all_teams_ref <- all_correlations |> filter(group == "All Teams")
+cinderella_only <- all_correlations |> filter(group != "All Teams")
+
+all_team_cors <- ggplot(
+  all_cors_df |> mutate(variable = factor(variable, levels = var_order)),
+  aes(x = variable, y = correlation, fill = correlation)
+) +
+  geom_col() +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  coord_flip() +
+  labs(title = "Correlation with Tournament Result (All Teams)", x = NULL, y = "Correlation") +
+  theme_minimal()
+
+comparison_plot <- ggplot() +
+  geom_col(
+    data = cinderella_only |> mutate(variable = factor(variable, levels = var_order)),
+    aes(x = variable, y = correlation, fill = correlation),
+    width = 0.7
+  ) +
+  geom_point(
+    data = all_teams_ref |> mutate(variable = factor(variable, levels = var_order)),
+    aes(x = variable, y = correlation),
+    color = "black", size = 2, shape = 21, fill = "white", stroke = 1
+  ) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  facet_wrap(~ group, ncol = 3) +
+  coord_flip() +
+  labs(
+    title    = "Correlation with Tournament Wins: Cinderella Definitions vs. All Teams",
+    subtitle = "White dots = All Teams correlation (reference)",
+    x = NULL, y = "Correlation", fill = "Correlation"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("all_team_cors.png", all_team_cors)
+ggsave("comparison_cors.png", comparison_plot, width = 16, height = 8)
+
+model_df <- cbb_data |>
+  filter(tournament_wins >= expected_wins + 1, SEED >= 5)
+
+model_vars <- model_df |>
+  select(-TEAM, -CONF, -POSTSEASON, -YEAR, -SEED, -W,
+         -expected_wins, -wins_oe) |>
+  names() |>
+  setdiff("tournament_wins")
+
+# ── Bivariate regressions for each predictor ──────────────────────────────────
+bivariate_results <- model_vars |>
+  map_dfr(function(var) {
+    formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
+    lm(formula, data = model_df) |>
+      tidy(conf.int = TRUE) |>
+      filter(term != "(Intercept)") |>
+      mutate(
+        term = var,  # overwrite backtick-wrapped term name for clean output
+        r_squared = summary(lm(formula, data = model_df))$r.squared
+      )
+  }) |>
+  arrange(p.value)
+
+print(bivariate_results, n = Inf)
+
+# ── All tournament teams bivariate regressions ────────────────────────────────
+all_teams_df <- cbb_data |>
+  filter(!is.na(tournament_wins))
+
+bivariate_all <- model_vars |>
+  map_dfr(function(var) {
+    formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
+    lm(formula, data = all_teams_df) |>
+      tidy(conf.int = TRUE) |>
+      filter(term != "(Intercept)") |>
+      mutate(
+        term = var,
+        r_squared = summary(lm(formula, data = all_teams_df))$r.squared
+      )
+  }) |>
+  arrange(p.value)
+
+print(bivariate_all, n = Inf)
+
+# ── Combine results ────────────────────────────────────────────────────────────
+bivariate_all <- bivariate_all |> mutate(group = "All Tournament Teams")
+bivariate_results <- bivariate_results |> mutate(group = "Cinderella Teams")
+
+combined_bivariate <- bind_rows(bivariate_all, bivariate_results)
+
+shared_order <- bivariate_all |> arrange(r_squared) |> pull(term)
+
+# ── R-squared comparison plot ──────────────────────────────────────────────────
+rsq_plot <- combined_bivariate |>
+  mutate(term = factor(term, levels = shared_order)) |>
+  ggplot(aes(x = term, y = r_squared, fill = group)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", "Cinderella Teams" = "tomato")) +
+  labs(
+    title = "Bivariate R² with Tournament Wins: All Teams vs. Cinderellas",
+    x = NULL, y = "R²", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# ── P-value comparison plot ────────────────────────────────────────────────────
+pval_plot <- combined_bivariate |>
+  mutate(term = factor(term, levels = shared_order)) |>
+  ggplot(aes(x = term, y = p.value, fill = group)) +
+  geom_col(position = "dodge") +
+  geom_hline(yintercept = 0.05, linetype = "dashed", color = "gray40") +
+  coord_flip() +
+  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", "Cinderella Teams" = "tomato")) +
+  labs(
+    title = "Statistical Significance of Predictors: All Teams vs. Cinderellas",
+    subtitle = "Dashed line = p = 0.05 threshold",
+    x = NULL, y = "p-value", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("rsq_comparison.png", rsq_plot, width = 10, height = 6)
+ggsave("pval_comparison.png", pval_plot, width = 10, height = 6)
+
+#cinderella teams CI
+bivariate_ci <- model_vars |>
+  purrr::map_dfr(function(var) {
+    
+    formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
+    model <- lm(formula, data = model_df)
+    
+    ci <- confint(model, level = 0.95)
+    
+    data.frame(
+      variable = var,
+      estimate = coef(model)[2],
+      conf_low = ci[2, 1],
+      conf_high = ci[2, 2],
+      p_value = summary(model)$coefficients[2, 4],
+      r_squared = summary(model)$r.squared
+    )
+  })
+
+print(bivariate_ci)
+#all teams CI
+bivariate_ci_all <- model_vars |>
+  purrr::map_dfr(function(var) {
+    
+    formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
+    model <- lm(formula, data = all_teams_df)
+    
+    ci <- confint(model, level = 0.95)
+    
+    data.frame(
+      variable = var,
+      estimate = coef(model)[2],
+      conf_low = ci[2, 1],
+      conf_high = ci[2, 2],
+      p_value = summary(model)$coefficients[2, 4],
+      r_squared = summary(model)$r.squared
+    )
+  })
+print(bivariate_ci_all)
+#plot of intervals for cinderella
+ci_plot <- ggplot(bivariate_ci, aes(x = variable, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.2) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "95% Confidence Intervals (Cinderella Teams)",
+    x = NULL,
+    y = "Effect on Tournament Wins"
+  ) +
+  theme_minimal()
+
+ggsave("cinderella_ci_plot.png", plot = ci_plot, width = 10, height = 6, dpi = 300)
+
+#plot of variables for all teams
+ci_plot_all <- ggplot(bivariate_ci_all, aes(x = variable, y = estimate)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.2) +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "95% Confidence Intervals (All Tournament Teams)",
+    x = NULL,
+    y = "Effect on Tournament Wins"
+  ) +
+  theme_minimal()
+
+print(ci_plot_all)
+ggsave("~/Downloads/all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 6, dpi = 300)
