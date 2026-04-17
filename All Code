@@ -34,13 +34,13 @@ seed_expectations <- cbb_data |>
 
 cbb_data <- cbb_data |>
   left_join(seed_expectations, by = "SEED") |>
-  mutate(wins_oe = tournament_wins - expected_wins)
+  mutate(wins_ae = tournament_wins - expected_wins)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 get_cors <- function(df, group_label) {
   df |>
     select(-TEAM, -CONF, -POSTSEASON, -YEAR, -SEED, -W,
-           -any_of(c("wins_oe", "expected_wins"))) |>
+           -any_of(c("wins_ae", "expected_wins"))) |>
     cor() |>
     (\(m) m["tournament_wins", ])() |>
     as.data.frame() |>
@@ -135,7 +135,7 @@ model_df <- cbb_data |>
 
 model_vars <- model_df |>
   select(-TEAM, -CONF, -POSTSEASON, -YEAR, -SEED, -W,
-         -expected_wins, -wins_oe) |>
+         -expected_wins, -wins_ae) |>
   names() |>
   setdiff("tournament_wins")
 
@@ -215,5 +215,102 @@ pval_plot <- combined_bivariate |>
 ggsave("rsq_comparison.png", rsq_plot, width = 10, height = 6)
 ggsave("pval_comparison.png", pval_plot, width = 10, height = 6)
 
+# ── Cinderella team profiles vs. all tournament teams ─────────────────────────
+cinderella_profiles <- model_df |>
+  select(TEAM, YEAR, SEED, tournament_wins, wins_ae, all_of(model_vars)) |>
+  arrange(desc(wins_ae))
 
+all_teams_avg <- all_teams_df |>
+  summarise(across(all_of(model_vars), \(x) round(mean(x, na.rm = TRUE), 2))) |>
+  mutate(TEAM = "All Teams Avg", YEAR = NA, SEED = NA,
+         tournament_wins = NA, wins_ae = NA)
 
+cinderella_avg <- model_df |>
+  summarise(across(all_of(model_vars), \(x) round(mean(x, na.rm = TRUE), 2))) |>
+  mutate(TEAM = "Cinderella Avg", YEAR = NA, SEED = NA,
+         tournament_wins = NA, wins_ae = NA)
+
+profile_table <- bind_rows(cinderella_avg, all_teams_avg)
+
+print(cinderella_profiles)
+print(profile_table)
+
+library(gt)
+
+cinderella_profiles |>
+  arrange(desc(wins_ae)) |>
+  slice_head(n = 15) |>
+  mutate(TEAM = case_when(
+    TEAM == "Connecticut" ~ "Connecticut",
+    nchar(TEAM) > 12 ~ paste0(substr(TEAM, 1, 12), "…"),
+    TRUE ~ TEAM
+  )) |>
+  gt() |>
+  tab_header(
+    title = md("**Cinderella Teams: March Madness Deep Runs**"),
+    subtitle = "Sorted by wins above expected | Seed ≥ 5, Wins ≥ Expected + 1"
+  ) |>
+  cols_label(
+    TEAM = "Team",
+    YEAR = "Year",
+    SEED = "Seed",
+    tournament_wins = "T. Wins",
+    wins_ae = "Wins AE",
+    ADJOE = "Adj OE",
+    ADJDE = "Adj DE",
+    EFG_O = "eFG% O",
+    EFG_D = "eFG% D",
+    TOR = "TO%",
+    TORD = "TO% D",
+    ORB = "ORB%",
+    DRB = "DRB%",
+    FTR = "FTR",
+    FTRD = "FTR D",
+    `2P_O` = "2P% O",
+    `2P_D` = "2P% D",
+    `3P_O` = "3P% O",
+    `3P_D` = "3P% D"
+  ) |>
+  tab_spanner(label = "Offense", columns = c(ADJOE, EFG_O, `2P_O`, `3P_O`, ORB, FTR)) |>
+  tab_spanner(label = "Defense", columns = c(ADJDE, EFG_D, `2P_D`, `3P_D`, DRB, FTRD)) |>
+  tab_spanner(label = "Ball Control", columns = c(TOR, TORD)) |>
+  fmt_number(columns = c(wins_ae), decimals = 2) |>
+  fmt_number(columns = c(ADJOE, ADJDE, EFG_O, EFG_D, TOR, TORD,
+                         ORB, DRB, FTR, FTRD, `2P_O`, `2P_D`, `3P_O`, `3P_D`),
+             decimals = 1) |>
+  data_color(
+    columns = wins_ae,
+    palette = c("white", "#2166ac"),
+    domain  = NULL
+  ) |>
+  data_color(
+    columns = `3P_O`,
+    palette = c("white", "#d73027"),
+    domain  = NULL
+  ) |>
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(columns = c(TEAM, wins_ae))
+  ) |>
+  tab_style(
+    style = cell_fill(color = "#f7f7f7"),
+    locations = cells_body(rows = seq(2, 15, 2))
+  ) |>
+  tab_footnote(
+    footnote = "3P% O highlighted as the strongest predictor of tournament wins among Cinderella teams",
+    locations = cells_column_spanners("Offense")
+  ) |>
+  tab_footnote(
+    footnote = "Wins AE = wins above expected based on seed historical average",
+    locations = cells_column_labels(wins_ae)
+  ) |>
+  tab_options(
+    table.font.size = 12,
+    heading.title.font.size = 16,
+    heading.subtitle.font.size = 12,
+    column_labels.font.weight = "bold",
+    table.border.top.color = "black",
+    table.border.bottom.color = "black",
+    heading.border.bottom.color = "black",
+    column_labels.border.bottom.color = "black"
+  )
