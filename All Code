@@ -1,16 +1,16 @@
 
 # Load packages
-library(dplyr)
 library(readr)
 library(ggplot2)
 library(purrr)
 library(broom)
 library(gt)
+library(dplyr)
 
 options(scipen = 999)
 
 # Load data
-cbb_data <- read_csv("~/Downloads/cbb.csv")
+cbb_data <- read_csv("~/Desktop/Junior Spring/Linear Regression/Final Project/CBB_2/cbb.csv")
 
 # Map postseason result to tournament wins
 postseason_map <- c(
@@ -392,3 +392,146 @@ ci_plot_all <- ggplot(bivariate_ci_all, aes(x = variable, y = estimate)) +
 print(ci_plot_all)
 ggsave("~/Downloads/all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 6, dpi = 300)
 
+
+# Get top 3 most correlated variables for Cinderella teams
+top3_vars <- bivariate_results |>
+  arrange(desc(r_squared)) |>
+  slice_head(n = 3) |>
+  pull(term)
+
+# Build a multivariate model with those 3 vars
+formula_top3 <- as.formula(
+  paste("tournament_wins ~", paste0("`", top3_vars, "`", collapse = " + "))
+)
+
+model_top3 <- lm(formula_top3, data = model_df)
+
+# QQ plot of residuals from that model
+par(mfrow = c(1, 1))
+
+qq_plot <- ggplot(data.frame(residuals = residuals(model_top3)), aes(sample = residuals)) +
+  stat_qq(color = "tomato", size = 2) +
+  stat_qq_line(color = "black", linetype = "dashed") +
+  labs(
+    title = "Q-Q Plot of Residuals: Cinderella Teams",
+    subtitle = paste("Model:", paste(top3_vars, collapse = " + ")),
+    x = "Theoretical Quantiles",
+    y = "Sample Quantiles"
+  ) +
+  theme_minimal()
+
+print(qq_plot)
+ggsave("cinderella_qqplot.png", qq_plot, width = 8, height = 6, dpi = 300)
+
+
+pred_data <- model_df |>
+  select(tournament_wins, all_of(top3_vars)) |>
+  filter(!is.na(tournament_wins),
+         !is.na(.data[[top3_vars[1]]]),
+         !is.na(.data[[top3_vars[2]]]),
+         !is.na(.data[[top3_vars[3]]]))
+
+conf_preds <- predict(model_top3, newdata = pred_data, interval = "confidence", level = 0.95) |>
+  as.data.frame() |>
+  rename(conf_lwr = lwr, conf_upr = upr)
+
+pred_preds <- predict(model_top3, newdata = pred_data, interval = "prediction", level = 0.95) |>
+  as.data.frame() |>
+  rename(pred_lwr = lwr, pred_upr = upr)
+
+plot_df <- bind_cols(pred_data, conf_preds, pred_preds |> select(pred_lwr, pred_upr)) |>
+  arrange(fit)
+
+interval_plot <- ggplot(plot_df, aes(x = fit, y = tournament_wins)) +
+  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), fill = "blue", alpha = 0.15) +
+  geom_ribbon(aes(ymin = conf_lwr, ymax = conf_upr), fill = "red", alpha = 0.25) +
+  geom_line(aes(y = fit), color = "black", linewidth = 1) +
+  geom_point(shape = 1, size = 2, alpha = 0.7) +
+  geom_line(aes(y = conf_lwr), color = "red", linewidth = 0.8) +
+  geom_line(aes(y = conf_upr), color = "red", linewidth = 0.8) +
+  geom_line(aes(y = pred_lwr), color = "blue", linewidth = 0.8) +
+  geom_line(aes(y = pred_upr), color = "blue", linewidth = 0.8) +
+  labs(
+    title = "95% Confidence & Prediction Intervals: Cinderella Teams",
+    subtitle = paste("Model:", paste(top3_vars, collapse = " + ")),
+    x = "Fitted Values",
+    y = "Actual Tournament Wins"
+  ) +
+  annotate("segment", x = -Inf, xend = -Inf, y = -Inf, yend = -Inf) +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  scale_color_manual(
+    name = NULL,
+    values = c("LS Regression Line" = "black",
+               "95% Confidence Interval" = "red",
+               "95% Prediction Interval" = "blue")
+  )
+
+# Add manual legend
+interval_plot <- interval_plot +
+  annotate("segment", x = min(plot_df$fit), xend = min(plot_df$fit),
+           y = -Inf, yend = Inf, color = NA) +
+  geom_line(aes(y = fit, color = "LS Regression Line")) +
+  geom_line(aes(y = conf_lwr, color = "95% Confidence Interval")) +
+  geom_line(aes(y = pred_lwr, color = "95% Prediction Interval")) +
+  scale_color_manual(
+    name = NULL,
+    values = c("LS Regression Line" = "black",
+               "95% Confidence Interval" = "red",
+               "95% Prediction Interval" = "blue")
+  )
+
+print(interval_plot)
+ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 6, dpi = 300)
+
+
+
+smooth_x <- data.frame(fit_seq = seq(min(plot_df$fit), max(plot_df$fit), length.out = 300))
+
+# Generate smooth new data by setting predictors along a grid
+new_data <- model_df |>
+  select(all_of(top3_vars)) |>
+  filter(!is.na(.data[[top3_vars[1]]]),
+         !is.na(.data[[top3_vars[2]]]),
+         !is.na(.data[[top3_vars[3]]]))  |>
+  summarise(across(everything(), mean))
+
+new_data <- new_data[rep(1, 300), ]
+new_data[[top3_vars[1]]] <- seq(
+  min(model_df[[top3_vars[1]]], na.rm = TRUE),
+  max(model_df[[top3_vars[1]]], na.rm = TRUE),
+  length.out = 300
+)
+
+conf_smooth <- predict(model_top3, newdata = new_data, interval = "confidence", level = 0.95) |> as.data.frame()
+pred_smooth <- predict(model_top3, newdata = new_data, interval = "prediction", level = 0.95) |> as.data.frame()
+
+smooth_df <- bind_cols(new_data, conf_smooth) |>
+  mutate(pred_lwr = pred_smooth$lwr, pred_upr = pred_smooth$upr)
+
+interval_plot <- ggplot() +
+  geom_ribbon(data = smooth_df, aes(x = fit, ymin = pred_lwr, ymax = pred_upr), fill = "blue", alpha = 0.15) +
+  geom_ribbon(data = smooth_df, aes(x = fit, ymin = lwr, ymax = upr), fill = "red", alpha = 0.25) +
+  geom_line(data = smooth_df, aes(x = fit, y = fit, color = "LS Regression Line"), linewidth = 1) +
+  geom_line(data = smooth_df, aes(x = fit, y = lwr, color = "95% Confidence Interval"), linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = upr, color = "95% Confidence Interval"), linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = pred_lwr, color = "95% Prediction Interval"), linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = pred_upr, color = "95% Prediction Interval"), linewidth = 0.8) +
+  geom_point(data = plot_df, aes(x = fit, y = tournament_wins), shape = 1, size = 2, alpha = 0.7) +
+  scale_color_manual(
+    name = NULL,
+    values = c("LS Regression Line" = "black",
+               "95% Confidence Interval" = "red",
+               "95% Prediction Interval" = "blue")
+  ) +
+  labs(
+    title = "95% Confidence & Prediction Intervals: Cinderella Teams",
+    subtitle = paste("Model:", paste(top3_vars, collapse = " + ")),
+    x = "Fitted Values",
+    y = "Actual Tournament Wins"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+print(interval_plot)
+ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 6, dpi = 300)
