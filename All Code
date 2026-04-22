@@ -535,3 +535,49 @@ interval_plot <- ggplot() +
 
 print(interval_plot)
 ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 6, dpi = 300)
+
+
+resid_df <- data.frame(
+  fitted = fitted(model_top3),
+  residuals = residuals(model_top3)
+)
+
+resid_plot <- ggplot(resid_df, aes(x = fitted, y = residuals)) +
+  geom_point(shape = 1, size = 2, alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Residual Plot: Cinderella Teams",
+    subtitle = paste("Model:", paste(top3_vars, collapse = " + ")),
+    x = "Fitted Values",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+
+print(resid_plot)
+ggsave("cinderella_residual_plot.png", resid_plot, width = 10, height = 6, dpi = 300)
+
+
+
+pairs_df <- model_df |>
+  select(all_of(top3_vars), tournament_wins) |>
+  filter(!is.na(.data[[top3_vars[1]]]),
+         !is.na(.data[[top3_vars[2]]]),
+         !is.na(.data[[top3_vars[3]]]),
+         !is.na(tournament_wins))
+
+colnames(pairs_df) <- c(top3_vars, "Wins")
+
+pairs(pairs_df,
+      pch = 1,
+      cex = 0.8,
+      gap = 0.5,
+      main = "Pairwise Correlation: Top 3 Predictors & Tournament Wins")
+
+
+png("cinderella_pairs_plot.png", width = 900, height = 900, res = 150)
+pairs(pairs_df,
+      pch = 1,
+      cex = 0.8,
+      gap = 0.5,
+      main = "Pairwise Correlation: Top 3 Predictors & Tournament Wins")
+dev.off()
