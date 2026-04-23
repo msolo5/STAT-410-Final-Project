@@ -108,7 +108,7 @@ all_team_cors <- ggplot(
   scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
   coord_flip() +
   labs(title = "Correlation with Tournament Result (All Teams)", x = NULL, y = "Correlation") +
-  theme_minimal()
+  theme_minimal(base_size = 30)
 
 comparison_plot <- ggplot() +
   geom_col(
@@ -129,11 +129,10 @@ comparison_plot <- ggplot() +
     subtitle = "White dots = All Teams correlation (reference)",
     x = NULL, y = "Correlation", fill = "Correlation"
   ) +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  theme_minimal(base_size = 25)
 
-ggsave("all_team_cors.png", all_team_cors)
-ggsave("comparison_cors.png", comparison_plot, width = 16, height = 8)
+ggsave("all_team_cors.png", all_team_cors, width = 16, height = 12)
+ggsave("comparison_cors.png", comparison_plot, width = 16, height = 16)
 
 model_df <- cbb_data |>
   filter(tournament_wins >= expected_wins + 1, SEED >= 5)
@@ -198,7 +197,7 @@ rsq_plot <- combined_bivariate |>
     title = "Bivariate R² with Tournament Wins: All Teams vs. Cinderellas",
     x = NULL, y = "R²", fill = NULL
   ) +
-  theme_minimal() +
+  theme_minimal(base_size = 19) +
   theme(legend.position = "bottom")
 
 # Plot P-value comparisons
@@ -214,11 +213,11 @@ pval_plot <- combined_bivariate |>
     subtitle = "Dashed line = p = 0.05 threshold",
     x = NULL, y = "p-value", fill = NULL
   ) +
-  theme_minimal() +
+  theme_minimal(base_size = 19) +
   theme(legend.position = "bottom")
 
-ggsave("rsq_comparison.png", rsq_plot, width = 10, height = 6)
-ggsave("pval_comparison.png", pval_plot, width = 10, height = 6)
+ggsave("rsq_comparison.png", rsq_plot, width = 10, height = 10)
+ggsave("pval_comparison.png", pval_plot, width = 10, height = 10)
 
 # Cinderella team profiles vs all tournament teams
 cinderella_profiles <- model_df |>
@@ -371,9 +370,9 @@ ci_plot <- ggplot(bivariate_ci, aes(x = variable, y = estimate)) +
     x = NULL,
     y = "Effect on Tournament Wins"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 20)
 
-ggsave("cinderella_ci_plot.png", plot = ci_plot, width = 10, height = 6, dpi = 300)
+ggsave("cinderella_ci_plot.png", plot = ci_plot, width = 10, height = 10, dpi = 300)
 
 # Plot all team confidence intervals
 
@@ -387,11 +386,10 @@ ci_plot_all <- ggplot(bivariate_ci_all, aes(x = variable, y = estimate)) +
     x = NULL,
     y = "Effect on Tournament Wins"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 20)
 
 print(ci_plot_all)
-ggsave("~/Downloads/all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 6, dpi = 300)
-
+ggsave("all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 10, dpi = 300)
 
 # Get top 3 most correlated variables for Cinderella teams
 top3_vars <- bivariate_results |>
@@ -418,10 +416,10 @@ qq_plot <- ggplot(data.frame(residuals = residuals(model_top3)), aes(sample = re
     x = "Theoretical Quantiles",
     y = "Sample Quantiles"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 20)
 
 print(qq_plot)
-ggsave("cinderella_qqplot.png", qq_plot, width = 8, height = 6, dpi = 300)
+ggsave("cinderella_qqplot.png", qq_plot, width = 8, height = 8, dpi = 300)
 
 
 pred_data <- model_df |>
@@ -458,7 +456,7 @@ interval_plot <- ggplot(plot_df, aes(x = fit, y = tournament_wins)) +
     y = "Actual Tournament Wins"
   ) +
   annotate("segment", x = -Inf, xend = -Inf, y = -Inf, yend = -Inf) +
-  theme_minimal() +
+  theme_minimal(base_size = 20) +
   theme(legend.position = "top") +
   scale_color_manual(
     name = NULL,
@@ -471,20 +469,21 @@ interval_plot <- ggplot(plot_df, aes(x = fit, y = tournament_wins)) +
 interval_plot <- interval_plot +
   annotate("segment", x = min(plot_df$fit), xend = min(plot_df$fit),
            y = -Inf, yend = Inf, color = NA) +
-  geom_line(aes(y = fit, color = "LS Regression Line")) +
-  geom_line(aes(y = conf_lwr, color = "95% Confidence Interval")) +
-  geom_line(aes(y = pred_lwr, color = "95% Prediction Interval")) +
+  geom_line(data = plot_df, aes(y = fit, color = "LS Regression Line")) +
+  geom_line(data = plot_df, aes(y = conf_lwr, color = "95% Confidence Interval")) +
+  geom_line(data = plot_df, aes(y = pred_lwr, color = "95% Prediction Interval")) +
   scale_color_manual(
     name = NULL,
     values = c("LS Regression Line" = "black",
                "95% Confidence Interval" = "red",
                "95% Prediction Interval" = "blue")
-  )
+  ) +
+  theme(text = element_text(size = 20))
 
 print(interval_plot)
-ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 6, dpi = 300)
+ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 10, dpi = 300)
 
-
+colnames(plot_df)
 
 smooth_x <- data.frame(fit_seq = seq(min(plot_df$fit), max(plot_df$fit), length.out = 300))
 
@@ -530,11 +529,11 @@ interval_plot <- ggplot() +
     x = "Fitted Values",
     y = "Actual Tournament Wins"
   ) +
-  theme_minimal() +
+  theme_minimal(base_size = 20) +
   theme(legend.position = "top")
 
 print(interval_plot)
-ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 6, dpi = 300)
+ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 10, dpi = 300)
 
 
 resid_df <- data.frame(
@@ -551,10 +550,10 @@ resid_plot <- ggplot(resid_df, aes(x = fitted, y = residuals)) +
     x = "Fitted Values",
     y = "Residuals"
   ) +
-  theme_minimal()
+  theme_minimal(base_size = 20)
 
 print(resid_plot)
-ggsave("cinderella_residual_plot.png", resid_plot, width = 10, height = 6, dpi = 300)
+ggsave("cinderella_residual_plot.png", resid_plot, width = 10, height = 10, dpi = 300)
 
 
 
