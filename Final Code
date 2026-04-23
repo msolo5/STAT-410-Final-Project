@@ -10,20 +10,20 @@ library(dplyr)
 options(scipen = 999)
 
 # Load data
-cbb_data <- read_csv("~/Desktop/Junior Spring/Linear Regression/Final Project/CBB_2/cbb.csv")
+cbb_data <- read_csv("~/Downloads/cbb.csv")
 
 # Map postseason result to tournament wins
 postseason_map <- c(
   "Champions" = 6,
-  "2ND"       = 5,
-  "F4"        = 4,
-  "E8"        = 3,
-  "S16"       = 2,
-  "R32"       = 1,
-  "R64"       = 0
+  "2ND" = 5,
+  "F4" = 4,
+  "E8" = 3,
+  "S16" = 2,
+  "R32" = 1,
+  "R64" = 0
 )
 
-# Clean dataframe
+# Clean main dataframe
 cbb_data <- cbb_data |>
   filter(!is.na(POSTSEASON), POSTSEASON != "N/A", POSTSEASON != "R68") |>
   mutate(
@@ -32,7 +32,7 @@ cbb_data <- cbb_data |>
   ) |>
   select(-BARTHAG, -WAB, -G)
 
-# Seed expectations and wins over expected
+# Seed expectations and wins above expected
 seed_expectations <- cbb_data |>
   group_by(SEED) |>
   summarise(expected_wins = round(mean(tournament_wins, na.rm = TRUE), 3))
@@ -43,18 +43,18 @@ cbb_data <- cbb_data |>
 
 # Helper functions
 get_cors <- function(df, group_label) {
-  df |>
+  numeric_cols <- df |>
     select(-TEAM, -CONF, -POSTSEASON, -YEAR, -SEED, -W,
-           -any_of(c("wins_ae", "expected_wins"))) |>
-    cor() |>
-    (\(m) m["tournament_wins", ])() |>
-    as.data.frame() |>
+           -any_of(c("wins_ae", "expected_wins")))
+  cor_matrix <- cor(numeric_cols)
+  wins_row <- cor_matrix["tournament_wins", ]
+  as.data.frame(wins_row) |>
     tibble::rownames_to_column("variable") |>
     rename(correlation = 2) |>
     filter(variable != "tournament_wins") |>
     mutate(
       correlation = round(correlation, 3),
-      group       = group_label
+      group = group_label
     )
 }
 
@@ -105,27 +105,33 @@ all_team_cors <- ggplot(
   aes(x = variable, y = correlation, fill = correlation)
 ) +
   geom_col() +
-  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", 
+                       midpoint = 0) +
   coord_flip() +
-  labs(title = "Correlation with Tournament Result (All Teams)", x = NULL, y = "Correlation") +
+  labs(title = "Correlation with Tournament Result (All Teams)", x = NULL, 
+       y = "Correlation") +
   theme_minimal(base_size = 30)
 
 comparison_plot <- ggplot() +
   geom_col(
-    data = cinderella_only |> mutate(variable = factor(variable, levels = var_order)),
+    data = cinderella_only |> mutate(variable = factor(variable, 
+                                                       levels = var_order)),
     aes(x = variable, y = correlation, fill = correlation),
     width = 0.7
   ) +
   geom_point(
-    data = all_teams_ref |> mutate(variable = factor(variable, levels = var_order)),
+    data = all_teams_ref |> mutate(variable = factor(variable, 
+                                                     levels = var_order)),
     aes(x = variable, y = correlation),
     color = "black", size = 2, shape = 21, fill = "white", stroke = 1
   ) +
-  scale_fill_gradient2(low = "red", mid = "white", high = "green", midpoint = 0) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "green", 
+                       midpoint = 0) +
   facet_wrap(~ group, ncol = 3) +
   coord_flip() +
   labs(
-    title    = "Correlation with Tournament Wins: Cinderella Definitions vs. All Teams",
+    title = "Correlation with Tournament Wins: Cinderella Definitions vs. 
+    All Teams",
     subtitle = "White dots = All Teams correlation (reference)",
     x = NULL, y = "Correlation", fill = "Correlation"
   ) +
@@ -134,6 +140,7 @@ comparison_plot <- ggplot() +
 ggsave("all_team_cors.png", all_team_cors, width = 16, height = 12)
 ggsave("comparison_cors.png", comparison_plot, width = 16, height = 16)
 
+# Create dataset for modeling
 model_df <- cbb_data |>
   filter(tournament_wins >= expected_wins + 1, SEED >= 5)
 
@@ -151,7 +158,7 @@ bivariate_results <- model_vars |>
       tidy(conf.int = TRUE) |>
       filter(term != "(Intercept)") |>
       mutate(
-        term = var,  # overwrite backtick-wrapped term name for clean output
+        term = var,
         r_squared = summary(lm(formula, data = model_df))$r.squared
       )
   }) |>
@@ -192,10 +199,11 @@ rsq_plot <- combined_bivariate |>
   ggplot(aes(x = term, y = r_squared, fill = group)) +
   geom_col(position = "dodge") +
   coord_flip() +
-  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", "Cinderella Teams" = "tomato")) +
+  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", 
+                               "Cinderella Teams" = "tomato")) +
   labs(
-    title = "Bivariate R² with Tournament Wins: All Teams vs. Cinderellas",
-    x = NULL, y = "R²", fill = NULL
+    title = "Bivariate R^2 with Tournament Wins: All Teams vs. Cinderellas",
+    x = NULL, y = "R^2", fill = NULL
   ) +
   theme_minimal(base_size = 19) +
   theme(legend.position = "bottom")
@@ -207,10 +215,11 @@ pval_plot <- combined_bivariate |>
   geom_col(position = "dodge") +
   geom_hline(yintercept = 0.05, linetype = "dashed", color = "gray40") +
   coord_flip() +
-  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", "Cinderella Teams" = "tomato")) +
+  scale_fill_manual(values = c("All Tournament Teams" = "steelblue", 
+                               "Cinderella Teams" = "tomato")) +
   labs(
     title = "Statistical Significance of Predictors: All Teams vs. Cinderellas",
-    subtitle = "Dashed line = p = 0.05 threshold",
+    subtitle = "Dashed line: p = 0.05 threshold",
     x = NULL, y = "p-value", fill = NULL
   ) +
   theme_minimal(base_size = 19) +
@@ -244,14 +253,13 @@ cinderella_profiles |>
   arrange(desc(wins_ae)) |>
   slice_head(n = 15) |>
   mutate(TEAM = case_when(
-    TEAM == "Connecticut" ~ "Connecticut",
     nchar(TEAM) > 12 ~ paste0(substr(TEAM, 1, 12), "…"),
     TRUE ~ TEAM
   )) |>
   gt() |>
   tab_header(
     title = md("**Cinderella Teams: March Madness Deep Runs**"),
-    subtitle = "Sorted by wins above expected | Seed ≥ 5, Wins ≥ Expected + 1"
+    subtitle = "Sorted by wins above expected | Seed >= 5, Wins >= Expected + 1"
   ) |>
   cols_label(
     TEAM = "Team",
@@ -274,8 +282,10 @@ cinderella_profiles |>
     `3P_O` = "3P% O",
     `3P_D` = "3P% D"
   ) |>
-  tab_spanner(label = "Offense", columns = c(ADJOE, EFG_O, `2P_O`, `3P_O`, ORB, FTR)) |>
-  tab_spanner(label = "Defense", columns = c(ADJDE, EFG_D, `2P_D`, `3P_D`, DRB, FTRD)) |>
+  tab_spanner(label = "Offense", columns = c(ADJOE, EFG_O, `2P_O`, `3P_O`, 
+                                             ORB, FTR)) |>
+  tab_spanner(label = "Defense", columns = c(ADJDE, EFG_D, `2P_D`, `3P_D`, 
+                                             DRB, FTRD)) |>
   tab_spanner(label = "Ball Control", columns = c(TOR, TORD)) |>
   fmt_number(columns = c(wins_ae), decimals = 2) |>
   fmt_number(columns = c(ADJOE, ADJDE, EFG_O, EFG_D, TOR, TORD,
@@ -300,7 +310,8 @@ cinderella_profiles |>
     locations = cells_body(rows = seq(2, 15, 2))
   ) |>
   tab_footnote(
-    footnote = "3P% O highlighted as the strongest predictor of tournament wins among Cinderella teams",
+    footnote = "3P% O highlighted as the strongest predictor of tournament wins 
+    among Cinderella teams",
     locations = cells_column_spanners("Offense")
   ) |>
   tab_footnote(
@@ -320,13 +331,10 @@ cinderella_profiles |>
 
 # Create cinderella teams confidence intervals
 bivariate_ci <- model_vars |>
-  purrr::map_dfr(function(var) {
-    
+  map_dfr(function(var) {
     formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
     model <- lm(formula, data = model_df)
-    
     ci <- confint(model, level = 0.95)
-    
     data.frame(
       variable = var,
       estimate = coef(model)[2],
@@ -341,13 +349,10 @@ print(bivariate_ci)
 
 # Create all teams confidence intervals
 bivariate_ci_all <- model_vars |>
-  purrr::map_dfr(function(var) {
-    
+  map_dfr(function(var) {
     formula <- as.formula(paste("tournament_wins ~ `", var, "`", sep = ""))
     model <- lm(formula, data = all_teams_df)
-    
     ci <- confint(model, level = 0.95)
-    
     data.frame(
       variable = var,
       estimate = coef(model)[2],
@@ -372,10 +377,10 @@ ci_plot <- ggplot(bivariate_ci, aes(x = variable, y = estimate)) +
   ) +
   theme_minimal(base_size = 20)
 
-ggsave("cinderella_ci_plot.png", plot = ci_plot, width = 10, height = 10, dpi = 300)
+ggsave("cinderella_ci_plot.png", plot = ci_plot, width = 10, height = 10, 
+       dpi = 300)
 
 # Plot all team confidence intervals
-
 ci_plot_all <- ggplot(bivariate_ci_all, aes(x = variable, y = estimate)) +
   geom_point(size = 3) +
   geom_errorbar(aes(ymin = conf_low, ymax = conf_high), width = 0.2) +
@@ -389,7 +394,8 @@ ci_plot_all <- ggplot(bivariate_ci_all, aes(x = variable, y = estimate)) +
   theme_minimal(base_size = 20)
 
 print(ci_plot_all)
-ggsave("all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 10, dpi = 300)
+ggsave("all_teams_ci_plot.png", plot = ci_plot_all, width = 10, height = 10, 
+       dpi = 300)
 
 # Get top 3 most correlated variables for Cinderella teams
 top3_vars <- bivariate_results |>
@@ -397,7 +403,7 @@ top3_vars <- bivariate_results |>
   slice_head(n = 3) |>
   pull(term)
 
-# Build a multivariate model with those 3 vars
+# Build a multivariate model with those 3 variables
 formula_top3 <- as.formula(
   paste("tournament_wins ~", paste0("`", top3_vars, "`", collapse = " + "))
 )
@@ -407,7 +413,8 @@ model_top3 <- lm(formula_top3, data = model_df)
 # QQ plot of residuals from that model
 par(mfrow = c(1, 1))
 
-qq_plot <- ggplot(data.frame(residuals = residuals(model_top3)), aes(sample = residuals)) +
+qq_plot <- ggplot(data.frame(residuals = residuals(model_top3)), 
+                  aes(sample = residuals)) +
   stat_qq(color = "tomato", size = 2) +
   stat_qq_line(color = "black", linetype = "dashed") +
   labs(
@@ -421,7 +428,7 @@ qq_plot <- ggplot(data.frame(residuals = residuals(model_top3)), aes(sample = re
 print(qq_plot)
 ggsave("cinderella_qqplot.png", qq_plot, width = 8, height = 8, dpi = 300)
 
-
+# Prediction data
 pred_data <- model_df |>
   select(tournament_wins, all_of(top3_vars)) |>
   filter(!is.na(tournament_wins),
@@ -429,70 +436,26 @@ pred_data <- model_df |>
          !is.na(.data[[top3_vars[2]]]),
          !is.na(.data[[top3_vars[3]]]))
 
-conf_preds <- predict(model_top3, newdata = pred_data, interval = "confidence", level = 0.95) |>
+conf_preds <- predict(model_top3, newdata = pred_data, interval = "confidence", 
+                      level = 0.95) |>
   as.data.frame() |>
   rename(conf_lwr = lwr, conf_upr = upr)
 
-pred_preds <- predict(model_top3, newdata = pred_data, interval = "prediction", level = 0.95) |>
+pred_preds <- predict(model_top3, newdata = pred_data, interval = "prediction", 
+                      level = 0.95) |>
   as.data.frame() |>
   rename(pred_lwr = lwr, pred_upr = upr)
 
-plot_df <- bind_cols(pred_data, conf_preds, pred_preds |> select(pred_lwr, pred_upr)) |>
+plot_df <- bind_cols(pred_data, conf_preds, pred_preds |> select(pred_lwr, 
+                                                                 pred_upr)) |>
   arrange(fit)
 
-interval_plot <- ggplot(plot_df, aes(x = fit, y = tournament_wins)) +
-  geom_ribbon(aes(ymin = pred_lwr, ymax = pred_upr), fill = "blue", alpha = 0.15) +
-  geom_ribbon(aes(ymin = conf_lwr, ymax = conf_upr), fill = "red", alpha = 0.25) +
-  geom_line(aes(y = fit), color = "black", linewidth = 1) +
-  geom_point(shape = 1, size = 2, alpha = 0.7) +
-  geom_line(aes(y = conf_lwr), color = "red", linewidth = 0.8) +
-  geom_line(aes(y = conf_upr), color = "red", linewidth = 0.8) +
-  geom_line(aes(y = pred_lwr), color = "blue", linewidth = 0.8) +
-  geom_line(aes(y = pred_upr), color = "blue", linewidth = 0.8) +
-  labs(
-    title = "95% Confidence & Prediction Intervals: Cinderella Teams",
-    subtitle = paste("Model:", paste(top3_vars, collapse = " + ")),
-    x = "Fitted Values",
-    y = "Actual Tournament Wins"
-  ) +
-  annotate("segment", x = -Inf, xend = -Inf, y = -Inf, yend = -Inf) +
-  theme_minimal(base_size = 20) +
-  theme(legend.position = "top") +
-  scale_color_manual(
-    name = NULL,
-    values = c("LS Regression Line" = "black",
-               "95% Confidence Interval" = "red",
-               "95% Prediction Interval" = "blue")
-  )
-
-# Add manual legend
-interval_plot <- interval_plot +
-  annotate("segment", x = min(plot_df$fit), xend = min(plot_df$fit),
-           y = -Inf, yend = Inf, color = NA) +
-  geom_line(data = plot_df, aes(y = fit, color = "LS Regression Line")) +
-  geom_line(data = plot_df, aes(y = conf_lwr, color = "95% Confidence Interval")) +
-  geom_line(data = plot_df, aes(y = pred_lwr, color = "95% Prediction Interval")) +
-  scale_color_manual(
-    name = NULL,
-    values = c("LS Regression Line" = "black",
-               "95% Confidence Interval" = "red",
-               "95% Prediction Interval" = "blue")
-  ) +
-  theme(text = element_text(size = 20))
-
-print(interval_plot)
-ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 10, dpi = 300)
-
-colnames(plot_df)
-
-smooth_x <- data.frame(fit_seq = seq(min(plot_df$fit), max(plot_df$fit), length.out = 300))
-
-# Generate smooth new data by setting predictors along a grid
+# Smooth interval data
 new_data <- model_df |>
   select(all_of(top3_vars)) |>
   filter(!is.na(.data[[top3_vars[1]]]),
          !is.na(.data[[top3_vars[2]]]),
-         !is.na(.data[[top3_vars[3]]]))  |>
+         !is.na(.data[[top3_vars[3]]])) |>
   summarise(across(everything(), mean))
 
 new_data <- new_data[rep(1, 300), ]
@@ -502,21 +465,38 @@ new_data[[top3_vars[1]]] <- seq(
   length.out = 300
 )
 
-conf_smooth <- predict(model_top3, newdata = new_data, interval = "confidence", level = 0.95) |> as.data.frame()
-pred_smooth <- predict(model_top3, newdata = new_data, interval = "prediction", level = 0.95) |> as.data.frame()
+conf_smooth <- predict(model_top3, newdata = new_data, interval = "confidence", 
+                       level = 0.95) |>
+  as.data.frame()
+pred_smooth <- predict(model_top3, newdata = new_data, interval = "prediction", 
+                       level = 0.95) |>
+  as.data.frame()
 
 smooth_df <- bind_cols(new_data, conf_smooth) |>
   mutate(pred_lwr = pred_smooth$lwr, pred_upr = pred_smooth$upr)
 
+# Interval Plot
 interval_plot <- ggplot() +
-  geom_ribbon(data = smooth_df, aes(x = fit, ymin = pred_lwr, ymax = pred_upr), fill = "blue", alpha = 0.15) +
-  geom_ribbon(data = smooth_df, aes(x = fit, ymin = lwr, ymax = upr), fill = "red", alpha = 0.25) +
-  geom_line(data = smooth_df, aes(x = fit, y = fit, color = "LS Regression Line"), linewidth = 1) +
-  geom_line(data = smooth_df, aes(x = fit, y = lwr, color = "95% Confidence Interval"), linewidth = 0.8) +
-  geom_line(data = smooth_df, aes(x = fit, y = upr, color = "95% Confidence Interval"), linewidth = 0.8) +
-  geom_line(data = smooth_df, aes(x = fit, y = pred_lwr, color = "95% Prediction Interval"), linewidth = 0.8) +
-  geom_line(data = smooth_df, aes(x = fit, y = pred_upr, color = "95% Prediction Interval"), linewidth = 0.8) +
-  geom_point(data = plot_df, aes(x = fit, y = tournament_wins), shape = 1, size = 2, alpha = 0.7) +
+  geom_ribbon(data = smooth_df, aes(x = fit, ymin = pred_lwr, ymax = pred_upr), 
+              fill = "blue", alpha = 0.15) +
+  geom_ribbon(data = smooth_df, aes(x = fit, ymin = lwr, ymax = upr), 
+              fill = "red", alpha = 0.25) +
+  geom_line(data = smooth_df, aes(x = fit, y = fit, 
+                                  color = "LS Regression Line"), linewidth = 1) +
+  geom_line(data = smooth_df, aes(x = fit, y = lwr, 
+                                  color = "95% Confidence Interval"), 
+            linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = upr, 
+                                  color = "95% Confidence Interval"), 
+            linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = pred_lwr, 
+                                  color = "95% Prediction Interval"), 
+            linewidth = 0.8) +
+  geom_line(data = smooth_df, aes(x = fit, y = pred_upr, 
+                                  color = "95% Prediction Interval"), 
+            linewidth = 0.8) +
+  geom_point(data = plot_df, aes(x = fit, y = tournament_wins), 
+             shape = 1, size = 2, alpha = 0.7) +
   scale_color_manual(
     name = NULL,
     values = c("LS Regression Line" = "black",
@@ -533,9 +513,10 @@ interval_plot <- ggplot() +
   theme(legend.position = "top")
 
 print(interval_plot)
-ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 10, dpi = 300)
+ggsave("cinderella_intervals_plot.png", interval_plot, width = 10, height = 10, 
+       dpi = 300)
 
-
+# Residual plot
 resid_df <- data.frame(
   fitted = fitted(model_top3),
   residuals = residuals(model_top3)
@@ -553,10 +534,10 @@ resid_plot <- ggplot(resid_df, aes(x = fitted, y = residuals)) +
   theme_minimal(base_size = 20)
 
 print(resid_plot)
-ggsave("cinderella_residual_plot.png", resid_plot, width = 10, height = 10, dpi = 300)
+ggsave("cinderella_residual_plot.png", resid_plot, width = 10, height = 10,
+       dpi = 300)
 
-
-
+# Pairwise correlation plot
 pairs_df <- model_df |>
   select(all_of(top3_vars), tournament_wins) |>
   filter(!is.na(.data[[top3_vars[1]]]),
@@ -566,17 +547,11 @@ pairs_df <- model_df |>
 
 colnames(pairs_df) <- c(top3_vars, "Wins")
 
-pairs(pairs_df,
-      pch = 1,
-      cex = 0.8,
-      gap = 0.5,
-      main = "Pairwise Correlation: Top 3 Predictors & Tournament Wins")
-
-
 png("cinderella_pairs_plot.png", width = 900, height = 900, res = 150)
 pairs(pairs_df,
       pch = 1,
       cex = 0.8,
       gap = 0.5,
       main = "Pairwise Correlation: Top 3 Predictors & Tournament Wins")
-dev.off()
+
+
